@@ -19,7 +19,7 @@ st.set_page_config(
 )
 
 st.title("🏗️ Dashboard Indeks Kemahalan Konstruksi (IKK)")
-st.markdown("Estimasi biaya konstruksi berbasis data BPS **2014–2025** · *Linear Regression per Provinsi*")
+st.markdown("Estimasi biaya konstruksi berbasis data BPS **2015–2024** · *Linear Regression per Provinsi*")
 st.markdown("---")
 
 # ─────────────────────────────────────────────
@@ -30,7 +30,7 @@ st.sidebar.markdown(
     "Upload **satu atau lebih** file CSV IKK dari BPS.\n\n"
     "Format nama file yang diharapkan:\n"
     "`Indeks Kemahalan Konstruksi, YYYY.csv`\n\n"
-    "Rentang tahun yang didukung: **2014–2025**"
+    "Rentang tahun yang didukung: **2015–2024**"
 )
 
 uploaded_files = st.sidebar.file_uploader(
@@ -50,6 +50,8 @@ harga_input = st.sidebar.number_input(
     value=5_000_000, step=500_000, format="%d"
 )
 
+TAHUN_MIN, TAHUN_MAX = 2015, 2024
+
 # ─────────────────────────────────────────────
 # FUNGSI: BACA & BERSIHKAN DATA
 # ─────────────────────────────────────────────
@@ -63,8 +65,8 @@ def load_data(files_bytes_list, luas, harga_dasar):
             st.sidebar.warning(f"⚠ Tahun tidak terdeteksi: {file_name}")
             continue
         tahun = int(match.group(1))
-        if tahun < 2014 or tahun > 2025:
-            st.sidebar.warning(f"⚠ Tahun {tahun} di luar rentang 2014–2025: {file_name}")
+        if tahun < TAHUN_MIN or tahun > TAHUN_MAX:
+            st.sidebar.warning(f"⚠ Tahun {tahun} di luar rentang {TAHUN_MIN}–{TAHUN_MAX}: {file_name}")
             continue
 
         try:
@@ -144,9 +146,9 @@ def train_models(df):
 # ─────────────────────────────────────────────
 if not uploaded_files:
     st.info("👈 Upload file CSV IKK BPS melalui sidebar kiri untuk memulai analisis.")
-    st.markdown("""
+    st.markdown(f"""
     **Cara penggunaan:**
-    1. Siapkan file CSV IKK dari BPS (tahun 2014–2025)
+    1. Siapkan file CSV IKK dari BPS (tahun {TAHUN_MIN}–{TAHUN_MAX})
     2. Upload lewat panel sidebar kiri (bisa sekaligus banyak file)
     3. Eksplorasi tren, prediksi, dan evaluasi model di tab yang tersedia
     """)
@@ -191,11 +193,13 @@ tab1, tab2, tab3, tab4 = st.tabs([
 # TAB 1 — TREN IKK
 # ══════════════════════════════════════════════
 with tab1:
-    st.subheader("Tren Historis IKK per Provinsi (2014–2025)")
+    st.subheader(f"Tren Historis IKK per Provinsi ({TAHUN_MIN}–{TAHUN_MAX})")
 
     semua_provinsi = sorted(df['provinsi'].unique())
     default_prov = [p for p in ['DKI JAKARTA', 'JAWA BARAT', 'ACEH', 'KALIMANTAN TIMUR', 'PAPUA']
                     if p in semua_provinsi]
+    if not default_prov:
+        default_prov = semua_provinsi[:min(3, len(semua_provinsi))]
 
     provinsi_dipilih = st.multiselect(
         "Pilih provinsi yang ingin dibandingkan:",
@@ -239,8 +243,11 @@ with tab2:
     with col_a:
         prov_pred = st.selectbox("Pilih Provinsi", options=sorted(models.keys()))
     with col_b:
-        tahun_pred = st.number_input(
-            "Tahun Prediksi", min_value=2010, max_value=2040, value=2026, step=1
+        tahun_pred = st.selectbox(
+            "Tahun Prediksi",
+            options=list(range(TAHUN_MIN, TAHUN_MAX + 1)),
+            index=(TAHUN_MAX - TAHUN_MIN),
+            help=f"Tahun prediksi dibatasi sesuai cakupan data historis: {TAHUN_MIN}–{TAHUN_MAX}."
         )
 
     if st.button("🚀 Hitung Prediksi", use_container_width=True):
@@ -254,21 +261,13 @@ with tab2:
         r3.metric("📏 Luas", f"{luas_input} m²")
         r4.metric("📍 Provinsi", prov_pred)
 
-        # Grafik historis + proyeksi
+        # Grafik historis + garis regresi (dalam rentang data historis)
         df_hist = df[df['provinsi'] == prov_pred].sort_values('tahun')
         tahun_hist_min = int(df_hist['tahun'].min())
         tahun_hist_max = int(df_hist['tahun'].max())
 
-        # Garis regresi model di rentang historis
         tahun_fit = list(range(tahun_hist_min, tahun_hist_max + 1))
-        ikk_fit   = [model_sel.predict([[t]])[0] for t in tahun_fit]
-
-        # Proyeksi ke depan (hanya jika tahun_pred > data terakhir)
-        if tahun_pred > tahun_hist_max:
-            tahun_proj = list(range(tahun_hist_max + 1, tahun_pred + 1))
-            ikk_proj   = [model_sel.predict([[t]])[0] for t in tahun_proj]
-        else:
-            tahun_proj, ikk_proj = [], []
+        ikk_fit = [model_sel.predict([[t]])[0] for t in tahun_fit]
 
         fig2, ax2 = plt.subplots(figsize=(11, 4))
 
@@ -276,26 +275,23 @@ with tab2:
         ax2.plot(df_hist['tahun'], df_hist['ikk'],
                  marker='o', color='steelblue', label='Data Historis', linewidth=2.5, zorder=3)
 
-        # Garis regresi di rentang historis
+        # Garis regresi
         ax2.plot(tahun_fit, ikk_fit,
                  linestyle='--', color='orange', alpha=0.7, label='Garis Regresi', linewidth=1.5)
 
-        # Proyeksi masa depan
-        if tahun_proj:
-            ax2.plot(tahun_proj, ikk_proj,
-                     marker='s', linestyle='--', color='tomato', label='Proyeksi', linewidth=2)
-
         # Titik target prediksi
-        ax2.scatter([tahun_pred], [ikk_pred], color='tomato', s=140, zorder=5)
+        ax2.scatter([tahun_pred], [ikk_pred], color='tomato', s=140, zorder=5,
+                     label='Tahun Diprediksi')
         ax2.annotate(
             f'  IKK {tahun_pred} = {ikk_pred:.2f}',
             xy=(tahun_pred, ikk_pred),
             fontsize=11, color='tomato', va='bottom'
         )
         ax2.axhline(y=100, color='gray', linestyle='--', alpha=0.4, label='Basis Nasional (100)')
-        ax2.set_title(f'Tren & Proyeksi IKK — {prov_pred}', fontsize=13)
+        ax2.set_title(f'Tren & Prediksi IKK — {prov_pred}', fontsize=13)
         ax2.set_xlabel('Tahun')
         ax2.set_ylabel('IKK')
+        ax2.set_xticks(range(tahun_hist_min, tahun_hist_max + 1))
         ax2.legend()
         ax2.grid(True, linestyle='--', alpha=0.5)
         plt.tight_layout()
@@ -384,4 +380,4 @@ with tab4:
         st.warning("Belum ada model yang dievaluasi.")
 
 st.markdown("---")
-st.caption("Dashboard IKK Nasional · Data BPS Indonesia 2014–2025 · Dibuat dengan Streamlit")
+st.caption("Dashboard IKK Nasional · Data BPS Indonesia 2015–2024 · Dibuat dengan Streamlit")
