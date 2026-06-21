@@ -240,7 +240,7 @@ with tab2:
         prov_pred = st.selectbox("Pilih Provinsi", options=sorted(models.keys()))
     with col_b:
         tahun_pred = st.number_input(
-            "Tahun Prediksi", min_value=2025, max_value=2040, value=2026, step=1
+            "Tahun Prediksi", min_value=2010, max_value=2040, value=2026, step=1
         )
 
     if st.button("🚀 Hitung Prediksi", use_container_width=True):
@@ -256,21 +256,41 @@ with tab2:
 
         # Grafik historis + proyeksi
         df_hist = df[df['provinsi'] == prov_pred].sort_values('tahun')
+        tahun_hist_min = int(df_hist['tahun'].min())
         tahun_hist_max = int(df_hist['tahun'].max())
-        tahun_proj = list(range(tahun_hist_max + 1, tahun_pred + 1))
-        ikk_proj = [model_sel.predict([[t]])[0] for t in tahun_proj]
+
+        # Garis regresi model di rentang historis
+        tahun_fit = list(range(tahun_hist_min, tahun_hist_max + 1))
+        ikk_fit   = [model_sel.predict([[t]])[0] for t in tahun_fit]
+
+        # Proyeksi ke depan (hanya jika tahun_pred > data terakhir)
+        if tahun_pred > tahun_hist_max:
+            tahun_proj = list(range(tahun_hist_max + 1, tahun_pred + 1))
+            ikk_proj   = [model_sel.predict([[t]])[0] for t in tahun_proj]
+        else:
+            tahun_proj, ikk_proj = [], []
 
         fig2, ax2 = plt.subplots(figsize=(11, 4))
+
+        # Data asli
         ax2.plot(df_hist['tahun'], df_hist['ikk'],
-                 marker='o', color='steelblue', label='Data Historis', linewidth=2.5)
+                 marker='o', color='steelblue', label='Data Historis', linewidth=2.5, zorder=3)
+
+        # Garis regresi di rentang historis
+        ax2.plot(tahun_fit, ikk_fit,
+                 linestyle='--', color='orange', alpha=0.7, label='Garis Regresi', linewidth=1.5)
+
+        # Proyeksi masa depan
         if tahun_proj:
             ax2.plot(tahun_proj, ikk_proj,
                      marker='s', linestyle='--', color='tomato', label='Proyeksi', linewidth=2)
-        ax2.scatter([tahun_pred], [ikk_pred], color='tomato', s=120, zorder=5)
+
+        # Titik target prediksi
+        ax2.scatter([tahun_pred], [ikk_pred], color='tomato', s=140, zorder=5)
         ax2.annotate(
             f'  IKK {tahun_pred} = {ikk_pred:.2f}',
             xy=(tahun_pred, ikk_pred),
-            fontsize=11, color='tomato'
+            fontsize=11, color='tomato', va='bottom'
         )
         ax2.axhline(y=100, color='gray', linestyle='--', alpha=0.4, label='Basis Nasional (100)')
         ax2.set_title(f'Tren & Proyeksi IKK — {prov_pred}', fontsize=13)
